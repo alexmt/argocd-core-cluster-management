@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cluster-apps
+spec:
+  generators:
+  - merge:
+      mergeKeys:
+        - metadata.labels.env
+        - path.basename
+      generators:
+      - matrix:
+          generators:
+          # enriches applications per directory in clusters/base with cluster labels
+          - clusters: {}
+          # produces argocd app per directory in clusters/base
+          - git:
+              repoURL: &repo https://github.com/alexmt/argocd-core-cluster-management.git
+              directories:
+              - path: clusters/base/*
+      - merge:
+          mergeKeys:
+            - path
+          generators:
+          # adds env metadata from .env.yaml to each application
+          # workaround for https://github.com/argoproj/argo-cd/issues/13118 - should use env directory name instead
+          - git:
+              repoURL: *repo
+              revision: HEAD
+              files:
+              - path: clusters/groups/*/.env.yaml
+          # discovers environment specific applications overrides
+          - git:
+              repoURL: *repo
+              revision: HEAD
+              directories:
+              - path: clusters/groups/*/*
+  template:
+    metadata:
+      name: '{{path.basename}}'
+    spec:
+      project: system
+      source:
+        repoURL: *repo
+        path: '{{path}}'
+      destination:
+        server: '{{server}}'
+        namespace: argocd
+      syncPolicy:
+        automated:
+          prune: true
